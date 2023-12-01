@@ -29,9 +29,9 @@ public class TerrainSettings : MonoBehaviour
     GameObject wallprefab;
     [SerializeField]
     GameObject foorPrefab;
-    [SerializeField, Range(0.1f, 10.0f)]
+    [SerializeField, Range(0.1f, 50.0f)]
     float terrainWidth = 1.0f;
-    [SerializeField, Range(0.1f, 10.0f)]
+    [SerializeField, Range(0.1f, 50.0f)]
     float terrainLength = 2.0f;
     [SerializeField, Range(0.01f, 1.0f)]
     float wallWidth = 0.1f;
@@ -59,6 +59,7 @@ public class TerrainSettings : MonoBehaviour
       GameObject floor = Instantiate(foorPrefab);
       floor.transform.parent = transform;
       floor.name = "Floor";
+      floor.tag = "terrain";
       this.floor = floor;
     }
 
@@ -116,10 +117,12 @@ public class TerrainSettings : MonoBehaviour
         // We want to create four walls around the edge of the terrain
         String[] wallNames = {"TopWall", "RightWall", "BottomWall", "LeftWall"};
         GameObject wall = Instantiate(wallprefab);
+        wall.tag = "terrain";
         walls[wallNumber] = wall;
         wall.name = wallNames[wallNumber];
         //attach the wall to the terrain
         wall.transform.parent = transform;
+
     }
 
 
