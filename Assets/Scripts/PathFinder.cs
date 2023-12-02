@@ -24,6 +24,11 @@ public class PathFinder : MonoBehaviour
       agent.destination = goal.transform.position;
     }
 
+    public void SetGoal(GameObject newGoal)
+    {
+      goal = newGoal;
+    }
+
 
 
 }
