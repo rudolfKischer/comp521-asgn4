@@ -94,9 +94,41 @@ public class Minotaur : MonoBehaviour
     private Dictionary<MinotaurBehaviourState, System.Action> stateBehaviours = new Dictionary<MinotaurBehaviourState, System.Action>();
 
 
+    [SerializeField]
+    private Material takeDamageMaterial;
+    [SerializeField]
+    private float takeDamageMaterialDuration = 0.25f;
+
+    private GameObject damageIndicatorCapsule;
+
+    public float agroCooldown = 6.0f;
+    private GameObject mostRecentAttacker = null;
+    float mostRecentAttackTime = -1.0f;
+
+
     // Pursue behaviour
 
-    
+    private IEnumerator TakeDamageMaterialCoroutine() {
+
+        //enable the damage indicator capsule
+        GameObject previousGoal = pathFinder.GetGoal();
+        damageIndicatorCapsule.SetActive(true);
+        pathFinder.SetGoal(gameObject);
+
+        yield return new WaitForSeconds(takeDamageMaterialDuration);
+
+        //disable the damage indicator capsule
+        damageIndicatorCapsule.SetActive(false);
+
+        //restore previous goal
+
+    }
+
+    public void TakeDamage(int damage, GameObject attacker) {
+        StartCoroutine(TakeDamageMaterialCoroutine());
+        mostRecentAttacker = attacker;
+        mostRecentAttackTime = Time.time;
+    }
 
 
 
@@ -175,6 +207,16 @@ public class Minotaur : MonoBehaviour
     GameObject ShouldPursue() {
 
         if (players.Length == 0) { return null; }
+
+        if (mostRecentAttacker != null) {
+            float timeSinceLastAttack = Time.time - mostRecentAttackTime;
+            if (timeSinceLastAttack > agroCooldown) {
+                mostRecentAttacker = null;
+            }
+            else {
+                return mostRecentAttacker;
+            }
+        }
 
         var (closest, closest_distance) = GetClosestPlayer(transform.position);
         var (closest_treasure, closest_treasure_distance) = GetClosestPlayer(treasure.transform.position);
@@ -313,6 +355,8 @@ public class Minotaur : MonoBehaviour
         //stop the animations from playing
         attackEffect.Stop();
         chargeEffect.Stop();
+
+        damageIndicatorCapsule = transform.Find("DamageCapsule").gameObject;
     }
 
     void Update()

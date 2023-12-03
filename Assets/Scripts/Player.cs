@@ -40,17 +40,23 @@ public class Player : MonoBehaviour
     [SerializeField]
     public int maxHealth = 5;
     [SerializeField]
-    public bool isRange = false;
+    public bool isRange = true;
     [SerializeField]
     public GameObject spawnPoint;
 
     [SerializeField, Range(1, 10)]
     public float projectileAttackRange = 5f;
+    [SerializeField, Range(1, 10)]
+    // if the minotaur is closer than this, we need to move away
+    public float minimumProjectileAttackRange = 3f;
+
+    [SerializeField, Range(1, 10)]
+    public float meleeAttackRange = 3f;
 
     [SerializeField, Range(1, 10)]
     private float treasureRadius = 2.0f;
     [SerializeField, Range(1, 10)]
-    private float minotaurRadius = 0.3f;
+    private float minotaurRadius = 2.5f;
     [SerializeField, Range(1, 10)]
     private float spawnRadius = 0.1f;
 
@@ -71,26 +77,212 @@ public class Player : MonoBehaviour
     private PathFinder pathFinder;
     private GameObject minotaur;
 
-    private int currentHealth;
+
+    public int currentHealth;
     private bool carryingTreasure = false;
 
     private Dictionary<PlayerBehaviourState, PlayerAction> stateBehaviours = new Dictionary<PlayerBehaviourState, PlayerAction>();
 
     private List<PlayerBehaviourState> plan = new List<PlayerBehaviourState>();
 
+    private GameObject playerModel;
+
+    [SerializeField]
+    private float attackCooldown = 1.0f;
+
+    private float lastAttackTime = -1.0f;
+
+    private float attackAnimationDuration = 0.5f;
+
+    public bool isDead = false;
+
+    private Animator swordAnimator;
+    private GameObject rifleShot;
+
+    [SerializeField]
+    public GameObject coverSpotsParent;
+    private List<GameObject> coverSpots = new List<GameObject>();
+
+    private IEnumerator StopAttackAnimationCoroutine() {
+        yield return new WaitForSeconds(attackAnimationDuration);
+        // get the reneere of the player model
+        // get the player model, and check if it has a sword "Sword"
+        // if it does, 
+
+        // rotate the sword overtime by 90 degrees
+        if (swordAnimator != null) {
+            swordAnimator.SetTrigger("finishAttacking");
+        }
+
+    }
+
+    private void AttackAnimation() {
+        // get the reneere of the player model
+        // get the player model, and check if it has a sword "Sword"
+        // if it does, 
+        if (swordAnimator != null) {
+            swordAnimator.SetTrigger("attackTrigger");  
+        }
+        StartCoroutine(StopAttackAnimationCoroutine());
+    }
+
+    private void Attack() {
+      // if we are close enough to the minotaur, attack it
+      float distance = GetPlanarDistance(transform.gameObject, minotaur);
+      Debug.Log("Distance to minotaur: " + distance);
+      Debug.Log("meleeAttackRange: " + meleeAttackRange);
+      if (distance > meleeAttackRange) { pathFinder.SetGoal(minotaur); return; }
+      Debug.Log("Attacking minotaur");
+      // attack the minotaur
+      pathFinder.SetGoal(gameObject);
+      AttackAnimation();
+      Minotaur minotaurScript = minotaur.GetComponent<Minotaur>();
+      minotaurScript.TakeDamage(1, gameObject);
+      lastAttackTime = Time.time;
+
+    }
+
+    private bool HasLineOfSight() {
+      // check if there is a line of sight between the player and the minotaur
+      // if there is, return true
+      // if there isnt, return false
+
+      // use a raycast to check if there is a line of sight
+      RaycastHit hit;
+      Vector3 direction = minotaur.transform.position - transform.position;
+      bool raycastResult = Physics.Raycast(transform.position, direction, out hit);
+
+      // draw Debug ray
+      // Debug.DrawRay(transform.position, direction, Color.red, 1.0f);
+      if (raycastResult) {
+        if (hit.transform.gameObject == minotaur) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    private IEnumerator ShootAnimation() {
+      // enable the shot for 0.1 seconds
+      
+      rifleShot.SetActive(true);
+      yield return new WaitForSeconds(0.1f);
+      rifleShot.SetActive(false);
+    }
+
+    bool isFacingMinotaur() {
+      Vector3 directionToMinotaur = minotaur.transform.position - transform.position;
+      float angleToMinotaur = Vector3.Angle(transform.forward, directionToMinotaur);
+      float maxFacingAngleError = 5.0f;
+      return angleToMinotaur < maxFacingAngleError;
+    }
+
+    private GameObject GetCoverSpot()
+    {
+      // Find the closest cover spot to us, that is not within some minimum distance of the minotaur
+      // find a cover spot, that is away from the minotaur
+
+      GameObject closestCoverSpot = null;
+      float closestDistance = float.MaxValue;
+      float minimumCoverSpotDistance = 10.0f;
+
+      foreach (GameObject coverSpot in coverSpots)
+      {
+        float distanceToMinotaur = GetPlanarDistance(coverSpot, minotaur);
+        if (distanceToMinotaur > minimumCoverSpotDistance)
+        {
+          float distanceToPlayer = GetPlanarDistance(coverSpot, transform.gameObject);
+          if (distanceToPlayer < closestDistance)
+          {
+
+            Vector3 directionToMinotaur = minotaur.transform.position - transform.position;
+            Vector3 directionToCoverSpot = coverSpot.transform.position - transform.position;
+            float angleToMinotaur = Vector3.Angle(directionToMinotaur, directionToCoverSpot);
+            float maxFacingAngleError = 180.0f;
+            if (angleToMinotaur > maxFacingAngleError) { continue; }
+            closestDistance = distanceToPlayer;
+            closestCoverSpot = coverSpot;
+          }
+        }
+      }
+
+      // if did not finda cover spot pick the first one
+      if (closestCoverSpot == null)
+      {
+        closestCoverSpot = coverSpots[0];
+      }
+
+      return closestCoverSpot;
+    }
+
+    private void Shoot()
+    {
+      lastAttackTime = -1.0f;
+      // check for line , if not navigate to minotaur
+      Vector3 directionToMinotaur = minotaur.transform.position - transform.position;
+
+      float distance = GetPlanarDistance(transform.gameObject, minotaur);
+      if (distance < minimumProjectileAttackRange)
+      {
+        // move away from the minotaur
+        // pick a the closest cover spot, that is not within some minimum distance of the minotaur
+        // and navigate to it
+
+        // Find the closest cover spot that is not within some minimum distance of the minotaur
+        GameObject closestCoverSpot = GetCoverSpot();
+        if (closestCoverSpot != null)
+        {
+          pathFinder.SetGoal(closestCoverSpot);
+          return;
+        }
+      }
+
+      if (!HasLineOfSight())
+      {
+        pathFinder.SetGoal(minotaur);
+        return;
+      }
+
+
+
+      pathFinder.SetGoal(gameObject);
+      // check that we are facing the minotaur
+      
+
+      if (!isFacingMinotaur()) {
+        // move towards facing the minotaur
+        Quaternion targetRotation = Quaternion.LookRotation(directionToMinotaur);
+        float maxRotationSpeed = 360.0f;
+        transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, maxRotationSpeed * Time.deltaTime);
+        return;
+      }
+
+
+      StartCoroutine(ShootAnimation());
+      Minotaur minotaurScript = minotaur.GetComponent<Minotaur>();
+      minotaurScript.TakeDamage(1, gameObject);
+      lastAttackTime = Time.time;
+      // if we are close enough to the minotaur, attack it
+    }
+
     private IEnumerator TakeDamageMaterialCoroutine() {
 
-        Material originalMaterial = GetComponent<Renderer>().material;
-        GetComponent<Renderer>().material = takeDamageMaterial;
+        // get the rendere of the player model
+        Renderer playerModelRenderer = playerModel.GetComponent<Renderer>();
+        Material originalPlayerModelMaterial = playerModelRenderer.material;
+        playerModelRenderer.material = takeDamageMaterial;
+
         yield return new WaitForSeconds(takeDamageMaterialDuration);
-        GetComponent<Renderer>().material = originalMaterial;
+
+        playerModelRenderer.material = originalPlayerModelMaterial;
+
     }
 
     public void TakeDamage(int damage) {
         currentHealth -= damage;
         if (currentHealth <= 0) {
           // disable the player
-          gameObject.SetActive(false);
+          isDead = true;
         } else {
           StartCoroutine(TakeDamageMaterialCoroutine());
         }
@@ -175,6 +367,7 @@ public class Player : MonoBehaviour
             () => { return true; },
             () => { 
               float distance = GetPlanarDistance(transform.gameObject, minotaur);
+              Debug.Log("Distance to minotaur: " + distance);
               return distance < minotaurRadius;
             }
         );
@@ -199,12 +392,60 @@ public class Player : MonoBehaviour
             () => { return true; },
             () => { return true;}
         );
+        stateBehaviours[PlayerBehaviourState.Attacking] = new PlayerAction(
+            "Attack",
+            () => { Attack(); },
+            () => { 
+              float elapsedTime = Time.time - lastAttackTime;
+              return lastAttackTime == -1.0f || elapsedTime > attackCooldown;
+            },
+            () => { // return true if we are passed the attack cooldown
+              float distance = GetPlanarDistance(transform.gameObject, minotaur);
+              return distance <= meleeAttackRange;
+            }
+        );
+        stateBehaviours[PlayerBehaviourState.Shooting] = new PlayerAction(
+            "Shoot",
+            () => { Shoot(); },
+            () => { 
+              float elapsedTime = Time.time - lastAttackTime;
+              if (!isRange) { return false; }
+              return lastAttackTime == -1.0f || elapsedTime > attackCooldown;
+            },
+            () => { // return true if we are passed the attack cooldown
+              // check if we have line of sight
+              return lastAttackTime != -1.0f;
+            }
+        );
     }
 
 
     //========================================================================= 
     void Start()
     {
+
+        if (isRange) {
+            playerModel = Instantiate(rangePlayerPrefab, transform);
+            rifleShot = playerModel.transform.Find("shot").gameObject;
+            // disable it
+            rifleShot.SetActive(false);
+
+        } else {
+            playerModel = Instantiate(meleePlayerPrefab, transform);
+            GameObject sword = playerModel.transform.Find("Sword").gameObject;
+            if (sword != null) {
+                // rotate the sword overtime by 90 degrees
+                swordAnimator = sword.GetComponent<Animator>();
+            }
+        }
+        playerModel.transform.localPosition = Vector3.zero;
+
+        // get all the children of the cover spots parent
+        // add them to the cover spots list
+        foreach (Transform child in coverSpotsParent.transform) {
+            coverSpots.Add(child.gameObject);
+        }
+
         if ( isRange ) { currentHealth =maxHealth / 2; } else { currentHealth =maxHealth; };
         pathFinder = GetComponent<PathFinder>();
         treasure = GameObject.FindGameObjectWithTag("Treasure");
@@ -213,11 +454,22 @@ public class Player : MonoBehaviour
         // go to treature and then to spawn
         plan = new List<PlayerBehaviourState> {
             // PlayerBehaviourState.ReturningToSpawn,
-            PlayerBehaviourState.PursuingTreasure,
-            PlayerBehaviourState.AcquiringTreasure,
-            PlayerBehaviourState.ReturningToSpawn,
-            PlayerBehaviourState.DroppingTreasure,
-            PlayerBehaviourState.PursuingMinotaur
+            // PlayerBehaviourState.PursuingTreasure,
+            // PlayerBehaviourState.AcquiringTreasure,
+            // PlayerBehaviourState.ReturningToSpawn,
+            // PlayerBehaviourState.DroppingTreasure,
+            PlayerBehaviourState.Shooting,
+            // PlayerBehaviourState.ReturningToSpawn,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.Shooting,
+            // PlayerBehaviourState.ReturningToSpawn,
+
         };
 
         DefineBehaviours();
@@ -232,6 +484,10 @@ public class Player : MonoBehaviour
 
     void Update()
     {
+        if (isDead) {
+          //disable
+          gameObject.SetActive(false);
+        }
         if (plan.Count == 0) { return; }
         var currentBehaviour = plan[0];
 
@@ -243,6 +499,11 @@ public class Player : MonoBehaviour
         if (stateBehaviours[currentBehaviour].postcondition()) {
             plan.RemoveAt(0);
         }
+
+        //line of sight
+        Debug.Log("Has line of sight: " + HasLineOfSight());
+
+
         
     }
 }

@@ -29,6 +29,11 @@ public class PathFinder : MonoBehaviour
       goal = newGoal;
     }
 
+    public GameObject GetGoal()
+    {
+      return goal;
+    }
+
 
 
 }
