@@ -96,6 +96,8 @@ public class Minotaur : MonoBehaviour
 
     // Pursue behaviour
 
+    
+
 
 
 
@@ -151,6 +153,8 @@ public class Minotaur : MonoBehaviour
         float closest_distance = Mathf.Infinity;
         foreach (GameObject player in players)
         {
+            // if player is disabled
+            if (!player.activeSelf) { continue; }
             float distance = Vector3.Distance(position, player.transform.position);
             if (distance < closest_distance)
             {
@@ -225,6 +229,23 @@ public class Minotaur : MonoBehaviour
 
     }
 
+    void DamagePlayer() {
+        //look for players within the attack radius
+        // if there are players within the attack radius, damage them
+        // get theire Player script and call the TakeDamage function
+        for (int i = 0; i < players.Length; i++) {
+            // if the player is disabled, skip them
+            if (!players[i].activeSelf) { continue; }
+            GameObject player = players[i];
+            float distance = Vector3.Distance(transform.position, player.transform.position);
+            if (distance < attackRadius) {
+                Player playerScript = player.GetComponent<Player>();
+                if (playerScript == null) { continue; }
+                playerScript.TakeDamage(1);
+            }
+        }
+    }
+
     void Attack() {
         // we Want to stop the minotaur from moving
         // then we want to play the attack animation
@@ -236,12 +257,17 @@ public class Minotaur : MonoBehaviour
         pathFinder.SetGoal(this.gameObject);
         AnimateAttack();
         float elapsed = Time.time - attackAnimationTimer;
-        Debug.Log("Attack Animation Timer: " + elapsed);
+        // Debug.Log("Attack Animation Timer: " + elapsed);
 
         if (elapsed > attackAnimationDuration) {
             attackTimer = Time.time;
             attackAnimationTimer = 0;
+            DamagePlayer();
         }
+
+        //look for players within the attack radius
+        // if there are players within the attack radius, damage them
+        // get theire Player script and call the TakeDamage function
     }
 
     void DefiningBehaviours()
@@ -292,7 +318,7 @@ public class Minotaur : MonoBehaviour
     void Update()
     {
       DetermineState();
-      Debug.Log("Minotaur State: " + state);
+      // Debug.Log("Minotaur State: " + state);
       stateBehaviours[state]();
     }
 
