@@ -15355,7 +15355,7 @@ NavMeshAgent:
   m_Enabled: 1
   m_AgentTypeID: 0
   m_Radius: 0.6
-  m_Speed: 11
+  m_Speed: 13
   m_Acceleration: 17
   avoidancePriority: 50
   m_AngularSpeed: 325.1
@@ -15380,18 +15380,18 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   textMeshPro: {fileID: 915847810}
-  targetSwitchCooldown: 2
+  targetSwitchCooldown: 2.5
   treasure: {fileID: 514325831}
   pathFinder: {fileID: 0}
   gaurdRadius: 3
   treasureMinPursueRadius: 7.5
   treasureMaxPursueRadius: 12.1
-  attackRadius: 4.02
+  attackRadius: 3.5
   pursueRadius: 7.37
-  attackCooldown: 2
+  attackCooldown: 1.5
   attackEffect: {fileID: 1147241485}
   chargeEffect: {fileID: 1515368910}
-  attackAnimationDuration: 0.3
+  attackAnimationDuration: 0.2
   takeDamageMaterial: {fileID: 2100000, guid: 91defeef59d454b8795e9329ff85c012, type: 2}
   takeDamageMaterialDuration: 0.1
   takeDamageStopMotionDuration: 0.05

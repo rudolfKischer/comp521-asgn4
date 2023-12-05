@@ -71,9 +71,9 @@ public class Planner {
 
       float lastTakenDamageTime = playerScript.lastTakenDamageTime;
       float treasurePickupCooldown = playerScript.treasurePickupCooldown;
-
+      bool isClosestPlayer = playerScript.isClosestPlayerToTreasure();
       // if there is already a treasure seeker assigned
-      if (playerSeekerAssigned || (lastTakenDamageTime < treasurePickupCooldown && lastTakenDamageTime != -1.0f)) {
+      if (playerSeekerAssigned || (lastTakenDamageTime < treasurePickupCooldown && lastTakenDamageTime != -1.0f || !isClosestPlayer)) {
         // if ranged,navigate to the minotaur and shoot it
         if (isRange) {
           // if we are too close to the minotaur or they have an attack cooldown, flee to cover
@@ -222,6 +222,30 @@ public class Player : MonoBehaviour
     [SerializeField]
     public GameObject coverSpotsParent;
     private List<GameObject> coverSpots = new List<GameObject>();
+
+
+    public bool isClosestPlayerToTreasure() {
+      GameObject[] players = GameObject.FindGameObjectsWithTag("Player"); 
+      GameObject closestPlayer = null;
+      float closestDistance = float.MaxValue;
+      foreach (GameObject player in players) {
+        // if the player is not enable or dead, skip
+        if (!player.activeSelf) { continue; }
+        if (player.GetComponent<Player>().isDead) { continue; }
+        Player playerScript = player.GetComponent<Player>();
+        if (playerScript.carryingTreasure) { continue; }
+        float distance = GetPlanarDistance(player, treasure);
+        float random = Random.Range(0.0f, 1.0f);
+        if (random < 0.5f) { continue; }
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestPlayer = player;
+        }
+      }
+
+      // 1/4 chance it return false anyway
+      return closestPlayer == gameObject;
+    }
 
     bool treasureAtSpawnPoint() {
       //loop through spawn points
@@ -468,14 +492,14 @@ public class Player : MonoBehaviour
         // if we take damage, we enter a cool down
         // in this time, we dont get new plan
         // and we delete our old plan
-        if (lastTakenDamageTime == -1.0f) {
-          lastTakenDamageTime = Time.time;
-          plan = new List<PlayerBehaviourState>();
-          if (isSeeker) {
-            playerSeekerAssigned = false;
-            isSeeker = false;
-          }
+        // if (lastTakenDamageTime == -1.0f) {
+        lastTakenDamageTime = Time.time;
+        plan = new List<PlayerBehaviourState>();
+        if (isSeeker) {
+          playerSeekerAssigned = false;
+          isSeeker = false;
         }
+        // }
 
         //if is holding treasure, drop it
         if (carryingTreasure) {
