@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using UnityEngine;
 
 
-enum PlayerBehaviourState {
+public enum PlayerBehaviourState {
     Attacking,
     Shooting,
     AcquiringTreasure,
     PursuingTreasure,
     PursuingMinotaur,
+    PursuingLineOfSight,
+    FleeingToCover,
     ReturningToSpawn,
     DroppingTreasure
 }
@@ -30,9 +32,125 @@ public class PlayerAction {
     }
 }
 
+public class Planner {
+    // this is a SHOP planner
+    // with total order planning
+    // we want to take in a player, and the current state of the world
+    // we would take in the goal, but the goal is always the same, to capture the treasure
+    // by bringing it back to spawn 
+    
+    // the world state is represented by 
+    // - IsNearMinotaur
+		// - IsNearTreasure
+		// - IsTreasureGrounded
+		// - IsHoldingTreasure
+		// - MinotaurIsVisible
+		// - IsRanged
+		// - IsTreasureSeekerAssigned
+
+    // the planning is as follow
+    // if there is already a treasure seeker assigned
+    //    - if ranged,navigate to the minotaur and shoot it
+    //    - if melee, navigate to the minotaur and attack it
+
+    //    - if we complete the plan, we ask for a new plan
+
+    // if there is no treasure seeker assigned, we will be the treasure seeker
+    //   - we will navigate to the treasure
+    //   - we will pick up the treasure
+    //   - we will navigate to the spawn
+    //   - we will drop the treasure
+
+    //   - if we drop the treasure, we need to unassign the treasure seeker
+
+    public List<PlayerBehaviourState> getPlan(GameObject player) {
+       Player playerScript = player.GetComponent<Player>();
+
+      bool playerSeekerAssigned = Player.playerSeekerAssigned;
+      bool isRange = playerScript.isRange;
+
+      float lastTakenDamageTime = playerScript.lastTakenDamageTime;
+      float treasurePickupCooldown = playerScript.treasurePickupCooldown;
+
+      // if there is already a treasure seeker assigned
+      if (playerSeekerAssigned || (lastTakenDamageTime < treasurePickupCooldown && lastTakenDamageTime != -1.0f)) {
+        // if ranged,navigate to the minotaur and shoot it
+        if (isRange) {
+          // if we are too close to the minotaur or they have an attack cooldown, flee to cover
+
+          if (playerScript.isCloseToMinotaur() || playerScript.onAttackCooldown()) {
+            return new List<PlayerBehaviourState> {
+              PlayerBehaviourState.FleeingToCover,
+            };
+          }
+
+          return new List<PlayerBehaviourState> {
+            PlayerBehaviourState.PursuingLineOfSight,
+            PlayerBehaviourState.Shooting,
+            PlayerBehaviourState.FleeingToCover,
+          };
+        } else {
+          if (playerScript.onAttackCooldown()) {
+            return new List<PlayerBehaviourState> {
+              PlayerBehaviourState.PursuingMinotaur,
+            };
+          }
+          // if melee, navigate to the minotaur and attack it
+          return new List<PlayerBehaviourState> {
+            PlayerBehaviourState.PursuingMinotaur,
+            PlayerBehaviourState.Attacking,
+          };
+        }
+      } else {
+        // if there is no treasure seeker assigned, we will be the treasure seeker
+        //   - we will navigate to the treasure
+        //   - we will pick up the treasure
+        //   - we will navigate to the spawn
+        //   - we will drop the treasure
+
+        //   - if we drop the treasure, we need to unassign the treasure seeker
+        return new List<PlayerBehaviourState> {
+          PlayerBehaviourState.PursuingTreasure,
+          PlayerBehaviourState.AcquiringTreasure,
+          PlayerBehaviourState.ReturningToSpawn,
+          PlayerBehaviourState.DroppingTreasure,
+        };
+      }
+
+
+
+    }
+
+
+
+
+}
+
+
 [RequireComponent(typeof(PathFinder))]
 public class Player : MonoBehaviour
 {
+    [SerializeField]
+    private float planRefreshCoolDown = 0.1f;
+    private float lastPlanRefreshTime = -1.0f;
+
+    [SerializeField]
+    public float takenDamageCooldown = 0.2f;
+    public float lastTakenDamageTime = -1.0f;
+
+    
+    private GameObject[] spawnPoints;
+
+    public float treasureSpawnMinDistance = 0.5f;
+
+
+    public static bool playerSeekerAssigned = false;
+    public bool isSeeker = false;
+
+    // text mesh pro element
+    [SerializeField]
+    private TMPro.TextMeshPro textMeshPro;
+
     [SerializeField]
     public GameObject meleePlayerPrefab;
     public GameObject rangePlayerPrefab;
@@ -63,7 +181,9 @@ public class Player : MonoBehaviour
     [SerializeField, Range(1, 10)]  
     private float treasurePickupRadius = 3.0f;
     [SerializeField, Range(1, 10)]
-    private float treasurePickupTime = 2.0f;
+    private float treasurePickupTime = 3.0f;
+    [SerializeField, Range(1, 10)]
+    public float treasurePickupCooldown = 3.0f;
 
     [SerializeField]
     private Material takeDamageMaterial;
@@ -79,7 +199,7 @@ public class Player : MonoBehaviour
 
 
     public int currentHealth;
-    private bool carryingTreasure = false;
+    public bool carryingTreasure = false;
 
     private Dictionary<PlayerBehaviourState, PlayerAction> stateBehaviours = new Dictionary<PlayerBehaviourState, PlayerAction>();
 
@@ -102,6 +222,24 @@ public class Player : MonoBehaviour
     [SerializeField]
     public GameObject coverSpotsParent;
     private List<GameObject> coverSpots = new List<GameObject>();
+
+    bool treasureAtSpawnPoint() {
+      //loop through spawn points
+      for (int i = 0; i < spawnPoints.Length; i++) {
+        //if treasure is at spawn point
+
+        //get the planar distance without the y axis
+        float distance = Vector3.Distance(new Vector3(spawnPoints[i].transform.position.x, 0, spawnPoints[i].transform.position.z),
+         new Vector3(treasure.transform.position.x, 0, treasure.transform.position.z));
+
+         if (distance < treasureSpawnMinDistance) {
+           //return true
+           return true;
+         }
+      }
+      //return false
+      return false;
+    }
 
     private IEnumerator StopAttackAnimationCoroutine() {
         yield return new WaitForSeconds(attackAnimationDuration);
@@ -129,10 +267,10 @@ public class Player : MonoBehaviour
     private void Attack() {
       // if we are close enough to the minotaur, attack it
       float distance = GetPlanarDistance(transform.gameObject, minotaur);
-      Debug.Log("Distance to minotaur: " + distance);
-      Debug.Log("meleeAttackRange: " + meleeAttackRange);
+      // Debug.Log("Distance to minotaur: " + distance);
+      // Debug.Log("meleeAttackRange: " + meleeAttackRange);
       if (distance > meleeAttackRange) { pathFinder.SetGoal(minotaur); return; }
-      Debug.Log("Attacking minotaur");
+      // Debug.Log("Attacking minotaur");
       // attack the minotaur
       pathFinder.SetGoal(gameObject);
       AttackAnimation();
@@ -215,48 +353,44 @@ public class Player : MonoBehaviour
       return closestCoverSpot;
     }
 
-    private void Shoot()
-    {
-      lastAttackTime = -1.0f;
-      // check for line , if not navigate to minotaur
-      Vector3 directionToMinotaur = minotaur.transform.position - transform.position;
+    private void FleeToCover() {
+      // pick a the closest cover spot, that is not within some minimum distance of the minotaur
+      // and navigate to it
+      // if there is a line of sight, keep moving away from the minotaur
 
-      float distance = GetPlanarDistance(transform.gameObject, minotaur);
-      if (distance < minimumProjectileAttackRange)
+
+      // Find the closest cover spot that is not within some minimum distance of the minotaur
+      GameObject closestCoverSpot = GetCoverSpot();
+      if (closestCoverSpot != null)
       {
-        // move away from the minotaur
-        // pick a the closest cover spot, that is not within some minimum distance of the minotaur
-        // and navigate to it
-
-        // Find the closest cover spot that is not within some minimum distance of the minotaur
-        GameObject closestCoverSpot = GetCoverSpot();
-        if (closestCoverSpot != null)
-        {
-          pathFinder.SetGoal(closestCoverSpot);
-          return;
-        }
+        pathFinder.SetGoal(closestCoverSpot);
+        return;
       }
+    }
 
-      if (!HasLineOfSight())
-      {
+    public bool isCloseToMinotaur() {
+      float distance = GetPlanarDistance(transform.gameObject, minotaur);
+      return distance < minimumProjectileAttackRange;
+    }
+
+    private void PursueLineOfSight() {
+      if (!HasLineOfSight()) {
         pathFinder.SetGoal(minotaur);
         return;
       }
-
-
-
       pathFinder.SetGoal(gameObject);
-      // check that we are facing the minotaur
-      
-
       if (!isFacingMinotaur()) {
         // move towards facing the minotaur
-        Quaternion targetRotation = Quaternion.LookRotation(directionToMinotaur);
+        Quaternion targetRotation = Quaternion.LookRotation(minotaur.transform.position - transform.position);
         float maxRotationSpeed = 360.0f;
         transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, maxRotationSpeed * Time.deltaTime);
         return;
       }
+    }
 
+    private void Shoot()
+    {
+      // lastAttackTime = -1.0f;
 
       StartCoroutine(ShootAnimation());
       Minotaur minotaurScript = minotaur.GetComponent<Minotaur>();
@@ -264,6 +398,56 @@ public class Player : MonoBehaviour
       lastAttackTime = Time.time;
       // if we are close enough to the minotaur, attack it
     }
+
+    // private void Shoot()
+    // {
+    //   lastAttackTime = -1.0f;
+    //   // check for line , if not navigate to minotaur
+    //   Vector3 directionToMinotaur = minotaur.transform.position - transform.position;
+
+    //   float distance = GetPlanarDistance(transform.gameObject, minotaur);
+    //   if (distance < minimumProjectileAttackRange)
+    //   {
+    //     // move away from the minotaur
+    //     // pick a the closest cover spot, that is not within some minimum distance of the minotaur
+    //     // and navigate to it
+
+    //     // Find the closest cover spot that is not within some minimum distance of the minotaur
+    //     GameObject closestCoverSpot = GetCoverSpot();
+    //     if (closestCoverSpot != null)
+    //     {
+    //       pathFinder.SetGoal(closestCoverSpot);
+    //       return;
+    //     }
+    //   }
+
+    //   if (!HasLineOfSight())
+    //   {
+    //     pathFinder.SetGoal(minotaur);
+    //     return;
+    //   }
+
+
+
+    //   pathFinder.SetGoal(gameObject);
+    //   // check that we are facing the minotaur
+      
+
+    //   if (!isFacingMinotaur()) {
+    //     // move towards facing the minotaur
+    //     Quaternion targetRotation = Quaternion.LookRotation(directionToMinotaur);
+    //     float maxRotationSpeed = 360.0f;
+    //     transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, maxRotationSpeed * Time.deltaTime);
+    //     return;
+    //   }
+
+
+    //   StartCoroutine(ShootAnimation());
+    //   Minotaur minotaurScript = minotaur.GetComponent<Minotaur>();
+    //   minotaurScript.TakeDamage(1, gameObject);
+    //   lastAttackTime = Time.time;
+    //   // if we are close enough to the minotaur, attack it
+    // }
 
     private IEnumerator TakeDamageMaterialCoroutine() {
 
@@ -280,9 +464,31 @@ public class Player : MonoBehaviour
 
     public void TakeDamage(int damage) {
         currentHealth -= damage;
+
+        // if we take damage, we enter a cool down
+        // in this time, we dont get new plan
+        // and we delete our old plan
+        if (lastTakenDamageTime == -1.0f) {
+          lastTakenDamageTime = Time.time;
+          plan = new List<PlayerBehaviourState>();
+          if (isSeeker) {
+            playerSeekerAssigned = false;
+            isSeeker = false;
+          }
+        }
+
+        //if is holding treasure, drop it
+        if (carryingTreasure) {
+          DropTreasure();
+        }
+
         if (currentHealth <= 0) {
           // disable the player
           isDead = true;
+          if (isSeeker) {
+            playerSeekerAssigned = false;
+            isSeeker = false;
+          }
         } else {
           StartCoroutine(TakeDamageMaterialCoroutine());
         }
@@ -299,13 +505,20 @@ public class Player : MonoBehaviour
         enteredPickupStartTime = -1.0f;
         return;
       }
+
+      // if we still have a pickup cooldown, dont pick up the treasure
+      float elapsedTimePickupCooldown = Time.time - lastTakenDamageTime;
+      if (elapsedTimePickupCooldown < treasurePickupCooldown && lastTakenDamageTime != -1.0f) {
+        return;
+      }
+
       // if we are close to the treasure, and the timer hasnt started, start the timer
       // pathFinder.SetGoal(transform.gameObject);
       if (enteredPickupStartTime == -1.0f) {
         enteredPickupStartTime = Time.time;
       }
       float elapsedTime = Time.time - enteredPickupStartTime;
-      if (elapsedTime > treasurePickupTime) { PickUpTreasure(); Debug.Log("Picked up treasure"); }
+      if (elapsedTime > treasurePickupTime ) { PickUpTreasure();}
     }
 
     void PickUpTreasure() {
@@ -317,6 +530,7 @@ public class Player : MonoBehaviour
       treasure.transform.parent = transform;
       treasure.transform.position = transform.position + new Vector3(0, 2, 0);
       carryingTreasure = true;
+      playerSeekerAssigned = true;
     }
 
     void DropTreasure() {
@@ -332,6 +546,7 @@ public class Player : MonoBehaviour
       float treasureHeight = treasure.transform.localScale.y;
       treasure.transform.position = new Vector3(transform.position.x, treasureHeight / 2, transform.position.z);
       carryingTreasure = false;
+      playerSeekerAssigned = false;
     }
 
     float GetPlanarDistance(GameObject a, GameObject b) {
@@ -339,10 +554,15 @@ public class Player : MonoBehaviour
                                 new Vector3(b.transform.position.x, 0, b.transform.position.z));
     }
 
+    public bool onAttackCooldown() {
+      float elapsedTime = Time.time - lastAttackTime;
+      return lastAttackTime != -1.0f && elapsedTime < attackCooldown;
+    }
+
     void DefineBehaviours() {
         stateBehaviours[PlayerBehaviourState.PursuingTreasure] = new PlayerAction(
             "PursuingTreasure",
-            () => { pathFinder.SetGoal(treasure); },
+            () => { pathFinder.SetGoal(treasure); isSeeker = true; playerSeekerAssigned = true; },
             () => { return true; },
             () => { 
               // remove y component from distance calculation
@@ -367,7 +587,7 @@ public class Player : MonoBehaviour
             () => { return true; },
             () => { 
               float distance = GetPlanarDistance(transform.gameObject, minotaur);
-              Debug.Log("Distance to minotaur: " + distance);
+              // Debug.Log("Distance to minotaur: " + distance);
               return distance < minotaurRadius;
             }
         );
@@ -396,8 +616,9 @@ public class Player : MonoBehaviour
             "Attack",
             () => { Attack(); },
             () => { 
-              float elapsedTime = Time.time - lastAttackTime;
-              return lastAttackTime == -1.0f || elapsedTime > attackCooldown;
+              // float elapsedTime = Time.time - lastAttackTime;
+              // return lastAttackTime == -1.0f || elapsedTime > attackCooldown;
+              return !onAttackCooldown();
             },
             () => { // return true if we are passed the attack cooldown
               float distance = GetPlanarDistance(transform.gameObject, minotaur);
@@ -408,21 +629,78 @@ public class Player : MonoBehaviour
             "Shoot",
             () => { Shoot(); },
             () => { 
-              float elapsedTime = Time.time - lastAttackTime;
               if (!isRange) { return false; }
-              return lastAttackTime == -1.0f || elapsedTime > attackCooldown;
+              // float elapsedTime = Time.time - lastAttackTime;
+              // return lastAttackTime == -1.0f || elapsedTime > attackCooldown;
+              return !onAttackCooldown();
             },
             () => { // return true if we are passed the attack cooldown
               // check if we have line of sight
               return lastAttackTime != -1.0f;
             }
         );
+        stateBehaviours[PlayerBehaviourState.PursuingLineOfSight] = new PlayerAction(
+            "PursuingLineOfSight",
+            () => { PursueLineOfSight(); },
+            () => { 
+              // must not be close to the minotaur
+              return !isCloseToMinotaur();
+            },
+            () => { 
+              // if we have line of sight, and we are facing the minotaur, return true
+              return HasLineOfSight() && isFacingMinotaur();
+            }
+        );
+        stateBehaviours[PlayerBehaviourState.FleeingToCover] = new PlayerAction(
+            "FleeingToCover",
+            () => { FleeToCover(); },
+            () => { 
+              // must be close to the minotaur
+              return true;
+            },
+            () => { 
+              // we must not be too close to the minotaur, and not have line of sight
+              //check that we have made it to cover
+              bool isCloseToCover = GetPlanarDistance(transform.gameObject, GetCoverSpot()) < 0.1f;
+              return !isCloseToMinotaur() || !HasLineOfSight();
+            }
+        );
+
+    }
+
+    void updateText()
+    {
+      // make the text face the main camera
+      // set the text to the current state
+
+      // use the negative of the forward vector to make the text face the camera
+      Vector3 text_forward = Camera.main.transform.forward;
+      textMeshPro.transform.forward = text_forward;
+      // set the test to the current plan
+      // enumerate the steps in the plan
+      string planString = "";
+      foreach (PlayerBehaviourState state in plan) {
+        // display the one at the top of the list in a different color
+        if (state == plan[0]) {
+          planString += "<color=red>";
+        }
+        planString += state.ToString() + "\n";
+        if (state == plan[0]) {
+          planString += "</color>";
+        }
+      }
+
+      //display the health
+      planString += "Health: " + currentHealth + "\n";
+      textMeshPro.text = planString;
     }
 
 
     //========================================================================= 
     void Start()
     {
+
+        spawnPoints = GameObject.FindGameObjectsWithTag("SpawnPoint");
 
         if (isRange) {
             playerModel = Instantiate(rangePlayerPrefab, transform);
@@ -452,25 +730,7 @@ public class Player : MonoBehaviour
         minotaur = GameObject.FindGameObjectWithTag("Minotaur");
 
         // go to treature and then to spawn
-        plan = new List<PlayerBehaviourState> {
-            // PlayerBehaviourState.ReturningToSpawn,
-            // PlayerBehaviourState.PursuingTreasure,
-            // PlayerBehaviourState.AcquiringTreasure,
-            // PlayerBehaviourState.ReturningToSpawn,
-            // PlayerBehaviourState.DroppingTreasure,
-            PlayerBehaviourState.Shooting,
-            // PlayerBehaviourState.ReturningToSpawn,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            PlayerBehaviourState.Shooting,
-            // PlayerBehaviourState.ReturningToSpawn,
-
-        };
+        plan = new List<PlayerBehaviourState>();
 
         DefineBehaviours();
 
@@ -484,24 +744,52 @@ public class Player : MonoBehaviour
 
     void Update()
     {
+
+        updateText();
         if (isDead) {
           //disable
           gameObject.SetActive(false);
         }
+        // if we are in attack , we dont get a new plan
+        if (lastTakenDamageTime != -1.0f) {
+          float elapsedTime = Time.time - lastTakenDamageTime;
+          if (elapsedTime > takenDamageCooldown) {
+            lastTakenDamageTime = -1.0f;
+          } else {
+            return;
+          }
+        }
+
+        float elapsedTimeSinceLastPlanRefresh = Time.time - lastPlanRefreshTime;
+        bool shouldRefreshPlan = elapsedTimeSinceLastPlanRefresh > planRefreshCoolDown || lastPlanRefreshTime == -1.0f;
+
+        if (plan.Count == 0 && !treasureAtSpawnPoint() && shouldRefreshPlan) {
+          lastPlanRefreshTime = Time.time;
+          plan = new Planner().getPlan(gameObject);
+          // Debug.Log("New plan: " + plan);
+        }
         if (plan.Count == 0) { return; }
         var currentBehaviour = plan[0];
 
-        Debug.Log("Current Behaviour: " + currentBehaviour);
+        // Debug.Log("Current Behaviour: " + currentBehaviour);
 
-        if (!stateBehaviours[currentBehaviour].precondition()) { return; }
+        if (!stateBehaviours[currentBehaviour].precondition() && shouldRefreshPlan) { 
+          // if the precondition is not met, clear our plan
+          lastPlanRefreshTime = Time.time;
+          plan.Clear();
+          return; 
+        }
 
         stateBehaviours[currentBehaviour].action();
-        if (stateBehaviours[currentBehaviour].postcondition()) {
+        if (stateBehaviours[currentBehaviour].postcondition() && shouldRefreshPlan) {
+            lastPlanRefreshTime = Time.time;
             plan.RemoveAt(0);
         }
 
         //line of sight
-        Debug.Log("Has line of sight: " + HasLineOfSight());
+        // Debug.Log("Has line of sight: " + HasLineOfSight());
+
+        
 
 
         

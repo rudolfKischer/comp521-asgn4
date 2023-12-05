@@ -51,6 +51,17 @@ public class Minotaur : MonoBehaviour
     // if no one is attacking us, we will return to gaurding the treasure
     // if someone enters the treasure radius, we will switch to them
 
+    [SerializeField]
+    private TMPro.TextMeshPro textMeshPro;
+
+    [SerializeField]
+    private float targetSwitchCooldown = 1.5f;
+    private float lastTargetSwitchTime = -1.0f;
+
+
+
+
+
 
     [SerializeField]
     GameObject treasure;
@@ -98,6 +109,8 @@ public class Minotaur : MonoBehaviour
     private Material takeDamageMaterial;
     [SerializeField]
     private float takeDamageMaterialDuration = 0.25f;
+    [SerializeField]
+    private float takeDamageStopMotionDuration = 0.05f;
 
     private GameObject damageIndicatorCapsule;
 
@@ -111,9 +124,9 @@ public class Minotaur : MonoBehaviour
     private IEnumerator TakeDamageMaterialCoroutine() {
 
         //enable the damage indicator capsule
-        GameObject previousGoal = pathFinder.GetGoal();
+        
         damageIndicatorCapsule.SetActive(true);
-        pathFinder.SetGoal(gameObject);
+        
 
         yield return new WaitForSeconds(takeDamageMaterialDuration);
 
@@ -124,10 +137,33 @@ public class Minotaur : MonoBehaviour
 
     }
 
+    private IEnumerator TakeDamageStopMotion() {
+        //stop the minotaur from moving
+        GameObject previousGoal = pathFinder.GetGoal();
+        pathFinder.SetGoal(gameObject);
+
+        yield return new WaitForSeconds(takeDamageStopMotionDuration);
+
+        //restore previous goal
+        pathFinder.SetGoal(previousGoal);
+
+
+    }
+
     public void TakeDamage(int damage, GameObject attacker) {
         StartCoroutine(TakeDamageMaterialCoroutine());
+        // StartCoroutine(TakeDamageStopMotion());
+
+        // push the minotaur away from the attacker a litle bit
+        Vector3 direction = transform.position - attacker.transform.position;
+        direction.y = 0;
+        direction.Normalize();
+        transform.position += direction * 0.02f;
+
         mostRecentAttacker = attacker;
         mostRecentAttackTime = Time.time;
+
+
     }
 
 
@@ -204,7 +240,47 @@ public class Minotaur : MonoBehaviour
         return closest_distance < attackRadius;
     }
 
+    GameObject PlayersHoldingTreasure() {
+        // if no one is holding the treasure, return null
+        // if someone is holding the treasure, return them
+        // if multiple people are holding the treasure, return the closest one
+        GameObject closest = null;
+        float closest_distance = Mathf.Infinity;
+        foreach (GameObject player in players) {
+            // if player is disabled
+            if (!player.activeSelf) { continue; }
+            Player playerScript = player.GetComponent<Player>();
+            if (playerScript == null) { continue; }
+            if (playerScript.carryingTreasure) {
+                return player;
+            }
+        }
+        return closest;
+    }
+
     GameObject ShouldPursue() {
+
+        // if we our on cooldown, return the current target
+        // if the cooldown is -1 we are not on cooldown
+        // if we are done the cooldown, set the cooldown to -1
+        if (currentTarget != null && currentTarget.activeSelf) {
+            float elapsed = Time.time - lastTargetSwitchTime;
+            if (lastTargetSwitchTime > 0 && elapsed < targetSwitchCooldown) {
+                return currentTarget;
+            }
+            else {
+                lastTargetSwitchTime = -1;
+            }
+        }
+
+        // if someone is holding the treasure, return them
+        GameObject treasureHolder = PlayersHoldingTreasure();
+        if (treasureHolder != null) {
+            lastTargetSwitchTime = Time.time;
+            return treasureHolder;
+        }
+
+
 
         if (players.Length == 0) { return null; }
 
@@ -214,6 +290,7 @@ public class Minotaur : MonoBehaviour
                 mostRecentAttacker = null;
             }
             else {
+                lastTargetSwitchTime = Time.time;
                 return mostRecentAttacker;
             }
         }
@@ -222,10 +299,12 @@ public class Minotaur : MonoBehaviour
         var (closest_treasure, closest_treasure_distance) = GetClosestPlayer(treasure.transform.position);
         if (closest_distance < pursueRadius)
         {
+            lastTargetSwitchTime = Time.time;
             return closest;
         }
         else if (closest_treasure_distance < treasureMinPursueRadius)
         {
+            lastTargetSwitchTime = Time.time;
             return closest_treasure;
         }
         else
@@ -337,6 +416,17 @@ public class Minotaur : MonoBehaviour
         players = GameObject.FindGameObjectsWithTag("Player");
     }
 
+    void updateText()
+    {
+      // make the text face the main camera
+      // set the text to the current state
+
+      // use the negative of the forward vector to make the text face the camera
+      Vector3 text_forward = Camera.main.transform.forward;
+      textMeshPro.transform.forward = text_forward;
+      textMeshPro.text = state.ToString();
+    }
+
     //==========================================================================
 
     void Awake()
@@ -364,6 +454,8 @@ public class Minotaur : MonoBehaviour
       DetermineState();
       // Debug.Log("Minotaur State: " + state);
       stateBehaviours[state]();
+
+      updateText();
     }
 
 
